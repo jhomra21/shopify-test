@@ -1,5 +1,5 @@
 import { Show, createSignal, onMount, For, createMemo, Suspense } from "solid-js";
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery, useMutation } from "@tanstack/solid-query";
 import { Transition } from "solid-transition-group";
 
 // Shopify Storefront API client
@@ -18,6 +18,12 @@ type ShopifyProductPrice = {
   currencyCode: string;
 };
 
+type ShopifyProductVariantEdge = {
+  node: {
+    id: string;
+  };
+};
+
 type ShopifyProduct = {
   id: string;
   title: string;
@@ -29,6 +35,9 @@ type ShopifyProduct = {
   images: {
     edges: ShopifyProductImage[];
   };
+  variants: { // Added to fetch variant ID
+    edges: ShopifyProductVariantEdge[];
+  };
 };
 
 type ShopifyProductEdge = {
@@ -38,6 +47,25 @@ type ShopifyProductEdge = {
 type ShopifyProductsData = {
   products: {
     edges: ShopifyProductEdge[];
+  };
+};
+
+// Types for Cart 
+// type CartLineInput = { 
+//   merchandiseId: string;
+//   quantity: number;
+// };
+
+type CartData = {
+  cartCreate: {
+    cart: {
+      id: string;
+      checkoutUrl: string;
+    };
+    userErrors: Array<{
+      field: string[];
+      message: string;
+    }>;
   };
 };
 
@@ -70,6 +98,13 @@ const fetchAllProducts = async (): Promise<ShopifyProductsData> => {
                 node {
                   url
                   altText
+                }
+              }
+            }
+            variants(first: 1) {
+              edges {
+                node {
+                  id
                 }
               }
             }
@@ -147,6 +182,66 @@ function ShopifyProductsContent(props: {
     queryFn: fetchAllProducts,
     suspense: true, // Ensure suspense mode is enabled if not default
   }));
+
+  const [checkoutError, setCheckoutError] = createSignal<string | null>(null);
+
+  const cartCreateMutationString = `
+    mutation cartCreate($input: CartInput!) {
+      cartCreate(input: $input) {
+        cart {
+          id
+          checkoutUrl
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const checkoutMutation = useMutation(() => ({
+    mutationFn: async (variables: { variantId: string }) => {
+      setCheckoutError(null); // Clear previous errors
+      const input = {
+        lines: [{ merchandiseId: variables.variantId, quantity: 1 }],
+      };
+      const { data, errors } = await client.request(cartCreateMutationString, {
+        variables: { input },
+      });
+
+      if (errors) {
+        console.error("GraphQL Errors:", JSON.stringify(errors, null, 2));
+        throw new Error(`GraphQL error: ${errors.message || JSON.stringify(errors)}`);
+      }
+      if (data?.cartCreate?.userErrors?.length) {
+        console.error("Cart User Errors:", JSON.stringify(data.cartCreate.userErrors, null, 2));
+        throw new Error(data.cartCreate.userErrors.map((err: { message: string }) => err.message).join(', '));
+      }
+      if (!data?.cartCreate?.cart?.checkoutUrl) {
+        throw new Error("Failed to create checkout or get checkout URL.");
+      }
+      return data as CartData;
+    },
+    onSuccess: (data: CartData) => {
+      if (data?.cartCreate?.cart?.checkoutUrl) {
+        window.location.href = data.cartCreate.cart.checkoutUrl;
+      }
+    },
+    onError: (error: Error) => {
+      setCheckoutError(error.message || "An unknown error occurred during checkout.");
+      console.error("Checkout Mutation Error:", error);
+    }
+  }));
+
+  const handleBuyNow = (variantId: string) => {
+    if (!variantId) {
+      setCheckoutError("Product variant ID is missing. Cannot proceed to checkout.");
+      console.error("Attempted to buy with missing variantId");
+      return;
+    }
+    checkoutMutation.mutate({ variantId });
+  };
 
   // Filter products based on search query
   const filteredProducts = createMemo<ShopifyProductEdge[]>(() => {
@@ -253,12 +348,30 @@ function ShopifyProductsContent(props: {
               }
             >
               <div class="space-y-6">
+                <Show when={checkoutMutation.isPending}>
+                  <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+                    <div class="flex items-center space-x-2 text-white p-4 bg-blue-600 rounded-lg shadow-xl">
+                      <div class="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                      <span>Processing checkout...</span>
+                    </div>
+                  </div>
+                </Show>
+                
+                <Show when={checkoutError()}>
+                  <div class="mt-4 p-3 bg-red-100 text-red-700 rounded-md border border-red-300">
+                    <h5 class="font-semibold">Checkout Error:</h5>
+                    <p class="text-sm">{checkoutError()}</p>
+                    <button onClick={() => setCheckoutError(null)} class="mt-2 text-sm text-red-600 hover:underline">Dismiss</button>
+                  </div>
+                </Show>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <For each={filteredProducts()}>
                     {(edge) => {
                       const product = edge.node;
+                      const firstVariantId = product.variants?.edges?.[0]?.node?.id;
                       return (
-                        <div class="border border-gray-200 rounded-lg shadow-sm overflow-hidden bg-white hover:shadow-md transition-all hover:translate-y-[-2px] duration-200">
+                        <div class="border border-gray-200 rounded-lg shadow-sm overflow-hidden bg-white hover:shadow-md transition-all hover:translate-y-[-2px] duration-200 flex flex-col">
                           {product.images?.edges?.[0] ? (
                             <div class="aspect-square overflow-hidden bg-gray-100">
                               <img 
@@ -273,7 +386,7 @@ function ShopifyProductsContent(props: {
                             </div>
                           )}
                           
-                          <div class="p-4">
+                          <div class="p-4 flex flex-col flex-1">
                             <h3 class="text-lg font-semibold text-gray-800 truncate">{product.title}</h3>
                             
                             {product.priceRange?.minVariantPrice && (
@@ -286,15 +399,22 @@ function ShopifyProductsContent(props: {
                             )}
                             
                             {product.description && (
-                              <p class="mt-2 text-sm text-gray-600 line-clamp-2">
+                              <p class="mt-2 text-sm text-gray-600 line-clamp-2 flex-grow">
                                 {product.description}
                               </p>
                             )}
                             
                             <div class="mt-4 pt-3 border-t border-gray-100">
-                              <button class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors duration-150">
-                                View Details
+                              <button 
+                                class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors duration-150 disabled:opacity-50"
+                                onClick={() => firstVariantId ? handleBuyNow(firstVariantId) : setCheckoutError('Variant ID not found for this product.')}
+                                disabled={checkoutMutation.isPending || !firstVariantId}
+                              >
+                                {checkoutMutation.isPending && checkoutMutation.variables?.variantId === firstVariantId ? 'Processing...' : 'Buy Now'}
                               </button>
+                              <Show when={!firstVariantId}>
+                                <p class="text-xs text-red-500 mt-1 text-center">Not available</p>
+                              </Show>
                             </div>
                           </div>
                         </div>
