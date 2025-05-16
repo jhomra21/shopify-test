@@ -22,7 +22,7 @@ function App() {
     <main class="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-4">
       <div class="space-y-8 text-center">
         <h1 class={`text-5xl font-bold text-sky-400 ${titleClass()}`}> 
-          Welcome to Gemini Image Editor!
+          Shopify Test Environment
         </h1>
 
         <div 
@@ -30,17 +30,17 @@ function App() {
         >
           <h2 class="text-3xl font-semibold mb-4 text-sky-300">What is this?</h2>
           <p class="text-slate-300 text-lg">
-            This application demonstrates the power of AI in image editing. 
-            Navigate to the Dummy page to test a simple API integration or explore other features.
+            This application demonstrates Shopify API integration for testing purposes.
+            Navigate to the Shopify page to explore product listings and API features.
           </p>
         </div>
 
         <Link 
-          to="/dummy"
+          to="/shopify"
           preload="intent"
           class={`px-8 py-3 bg-sky-500 text-white font-semibold rounded-lg shadow-lg hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all transform hover:scale-105 ${buttonClass()}`}
         >
-          Go to API Tester (Dummy Route)
+          Go to Shopify Products
         </Link>
       </div>
     </main>

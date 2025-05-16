@@ -8,7 +8,7 @@ import {
 } from '@tanstack/solid-router'
 import { TanStackRouterDevtools } from '@tanstack/solid-router-devtools'
 import { render } from 'solid-js/web'
-import { For, children as resolveChildren } from 'solid-js'
+import { For, children as resolveChildren, Show } from 'solid-js'
 import { Icon, type IconName } from './components/ui/icon'
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query'
 
@@ -39,7 +39,7 @@ const navRoutes: { path: string; name: string; iconName: IconName }[] = [
 ];
 
 function AppSidebar() {
-  const { setOpenMobile, isMobile } = useSidebar();
+  const { setOpenMobile, isMobile, state } = useSidebar();
 
   const handleLinkClick = () => {
     if (isMobile()) {
@@ -57,9 +57,16 @@ function AppSidebar() {
               <For each={navRoutes}>
                 {(route) => {
                   const linkChildren = resolveChildren(() => (
-                    <div class="flex items-center gap-2">
+                    <div classList={{
+                      "flex": true,
+                      "items-center": true,
+                      "justify-center": state() === "collapsed",
+                      "gap-2": state() === "expanded"
+                    }}>
                       <Icon name={route.iconName} class="h-5 w-5" />
-                      <span>{route.name}</span>
+                      <Show when={state() === "expanded"}>
+                        <span>{route.name}</span>
+                      </Show>
                     </div>
                   ));
 
@@ -69,7 +76,7 @@ function AppSidebar() {
                         as={Link} 
                         to={route.path} 
                         preload="intent"
-                        class="w-full text-left"
+                        class="w-full"
                         onClick={handleLinkClick}
                       >
                         {linkChildren()} 
